@@ -1,0 +1,435 @@
+
+---
+title: "320 Final Project"
+output:
+  html_document:
+    df_print: paged
+---
+# Introduction
+ The NBA is one of the biggest sports leagues in the United States, with the
+ average team being worth $2.12 billion as of 2020
+ [https://www.forbes.com/sites/forbespr/2020/02/11/the-business-of-basketball-forbes-releases-22nd-annual-nba-team-valuations/#352c7b7f75ff].
+ Like many other major league sports, data science and analytics have become an
+ increasingly prevalent tool for teams to try and gain a competitive advantage,
+ and has impacted the way the game is thought about and played, as seen for
+ example by its role in increasing the importance of the 3-point shot
+ [https://towardsdatascience.com/nba-data-analytics-changing-the-game-a9ad59d1f116].
+ To allow teams to select young new players in a fair manner, an annual draft is
+ held, which has consisted of two rounds (with every team given a pick in the
+ first and second round) since 1989. Any players not selected in those two
+ rounds are allowed to try out and sign with any interested team. More
+ information about the evolution and the current format of the draft can be read
+ here [http://www.nba.com/history/draft_evolution.html]. This project is aimed
+ to be an interesting tutorial that introduces the reader to the basic aspects
+ of data science by showing how it can be applied to understanding the value and
+ importance of draft picks within the annual NBA draft. Hopefully, the analysis
+ within here can help the reader gain a sense for the overall "value" players
+ taken at different points in the draft typically add to their team.
+ Understanding this value is vital for teams to evaluate the value of their
+ picks, and consider potential trades of draft picks with other teams to try and
+ get the best value and chance at creating the best team possible.
+ 
+ The dataset we are using can be found at
+ https://www.kaggle.com/justinas/nba-players-data. The data is comprised of
+ individual specific seasons for each NBA player from the 1996-97 to 2016-17
+ seasons. For this specific project, the important parts of this data that we
+ will be making use of are the statistics it lists for each individual season
+ for a given player, and the information regarding where they were selected in
+ the NBA draft (if they were selected).
+
+# Data Collection and Management
+
+This code reads the locally stored CSV file, then shows the first few rows of
+output in order to show what the downloaded data looks like unmodified.
+```{r load_data, message=FALSE}
+library(tidyverse)
+library(naniar)
+library(ggplot2)
+library(gridExtra)
+
+# CSV file downloaded at "https://www.kaggle.com/justinas/nba-players-data"
+nba_tab <- read_csv("all_seasons.csv")
+head(nba_tab)
+```
+
+
+## Cleaning data
+
+[Should we convert draft_year and season columns into integers/dates?
+(lubridate). There might not be a point for some of them]
+
+Data processing is one of the most important steps to analyse data. Load the data into 
+dataframe with appropriate names that it can accurately describe the data. 
+After loading the data, we now create a tidier data table with some
+characteristics changed in order to set it up for analysis later. We create a
+new column called 'undrafted' that is true if that player was undrafted, and
+false if not. We then replace entries that had "undrafted" listed as their
+draft_year, draft_round, and draft_number with 'NA' instead. We convert the
+draft_round, draft_year, and draft_number columns to be
+integers instead of characters. You should learn to get rid of missing data appropriately 
+before doing any actual analysis to avoid any unnecessary errors. 
+Additionally, since the NBA switched to a 2-round draft in 1989, to accurately
+measure the value of draft picks in the modern draft format, we're going to
+filter out any players who were drafted before 1989. We also exclude erroneous
+entries that have draft_round listed as greater than 2.
+
+```{r}
+tidy_nba <-
+  nba_tab %>%
+mutate(Undrafted = ifelse(draft_round == "Undrafted" | draft_year == "Undrafted" |
+                        draft_number == "Undrafted",TRUE,FALSE)) %>%
+  replace_with_na_all(condition = ~.x == "Undrafted")
+
+tidy_nba$draft_round <- as.integer(tidy_nba$draft_round)
+tidy_nba$draft_year <- as.integer(tidy_nba$draft_year)
+tidy_nba$draft_number <- as.integer(tidy_nba$draft_number)
+
+tidy_nba <-
+  filter(tidy_nba, (draft_year >= 1989 | is.na(draft_year)) &
+           (draft_round <= 2 | is.na(draft_round)))
+
+head(tidy_nba)
+```
+
+
+This code creates a dataframe that only includes players in their rookie seasons.
+The first season this dataset has data from is the 1996-1997 season. Some
+players who played in the 1996 had been drafted before that year, and because
+undrafted players do not have a draft_year listed and so it cannot be determined
+whether 1996 was their first season or not, we're only looking at all rookie
+seasons starting from 1997 instead.
+
+```{r}
+# distinct() removes all duplicates based on the player_name variable if there's
+# already another row with that value. The tidy_nba is sorted by season, so it'll
+# remove all seasons besides their first season for all players.
+rookie_after_1997_df <-
+  tidy_nba %>%
+  distinct(player_name, .keep_all = TRUE) %>%
+  filter(season != "1996-97")
+
+rookie_after_1997_df
+```
+We have 20 attributes for each entity(which is basketball player) and the 
+definition of each attributes are listed below():
+(1)player_name: name of the players and there are 2235 unique values. 
+(2)team_abbreviation:Abbreviated name of the team the player played for (at the end of the season)
+(3)age:Age of the player
+(4)player_height:Height of the player (in centimeters)
+(5)player_weight:Weight of the player (in kilograms)
+(6)college:Name of the college the player attended
+(7)country：Name of the country the player was born in (not necessarily the nationality)
+(8)draft_year:The year the player was drafted
+(9)draft_round:The draft round the player was picked
+(10)draft_number:The number at which the player was picked in his draft round
+(11)gp:Games played throughout the season
+(12)pts:Average number of points scored
+(13)reb:Average number of rebounds grabbed
+(14)ast:Average number of assists distributed
+(15)net_rating:Team's point differential per 100 possessions while the player is on the court
+(16)oreb_pct:Percentage of available offensive rebounds the player grabbed while he was on the floor
+(17)dreb_pct:Percentage of available defensive rebounds the player grabbed while he was on the floor
+(18)usg_pct:Percentage of team plays used by the player while he was on the floor (FGA + Possession Ending FTA + TO) / POSS)
+(19)ts_pct:Measure of the player's shooting efficiency that takes into account free throws, 2 and 3 point shots (PTS / (2*(FGA + 0.44 * FTA)))
+(20)ast_pct:Percentage of teammate field goals the player assisted while he was on the floor
+
+# Exploratory Data Analysis and Visualization 
+
+[could possibly use this rookie data frame to create a new boolean column
+'rookie' that indicates if it's a players first season or not]
+
+group_by season, group_by draft pick?
+
+## Rookie Stats
+Grouping all the rookie seasons by their draft pick to show the averages for all
+playing statistics (games played, points, etc.) by players chosen with that pick
+in their rookie season.
+```{r}
+rookie_performance_by_pick_df <-
+rookie_after_1997_df %>%
+  group_by(draft_number) %>%
+  summarize_at(vars(gp:ast_pct), list(mean = mean))
+ 
+rookie_performance_by_pick_df
+```
+
+I want to show the relationship between the number of drafts with average points
+of players. First, I remove the NA(undrafted) player from the list and use
+linear regression to find the correlation. By using linear regression, it is
+clearly in the graph that the number of drafts has a negative relationship with
+average points, which means that the player with lower draft numbers seems to
+play better than the player with high draft numbers.
+
+```{r}
+rookie_performance_by_pick_df<-na.omit(rookie_performance_by_pick_df)
+rookie_performance_by_pick_df%>%ggplot(aes(x=draft_number,y=pts_mean))+geom_point()+geom_smooth(method=lm)
+```
+
+
+[potential ideas: Make scatter plot of every rookie season with draft number on
+one axis and pts or gp or something else on the other? For every draft pick,
+there's only about 20 points of data. Could partition it by draft round or by
+every 10 picks or so instead to get more data points? (so grouped by picks 1-10,
+11-20, etc.)]
+
+[make boxplot or violin plot or something grouped by round or a range of picks
+to try and show the deviation and try to measure how many players picked in that
+range pan out?]
+
+[thinking about how to represent undrafted players, include them all as a single X value?]
+Scatter plots of draft number vs rating, gp, pts, and shot pct:
+
+## Visualizing Performance Metrics
+```{r}
+p1 <- tidy_nba %>%
+  ggplot(aes(x=draft_number, y=net_rating)) +
+  geom_point()+geom_smooth(method=lm)
+p2 <- tidy_nba %>%
+  ggplot(aes(x=draft_number, y=gp)) +
+  geom_point()+geom_smooth(method=lm)
+p3 <- tidy_nba %>%
+  ggplot(aes(x=draft_number, y=pts)) +
+  geom_point()+geom_smooth(method=lm)
+p4 <- tidy_nba %>%
+  ggplot(aes(x=draft_number, y=ts_pct)) +
+  geom_point()+geom_smooth(method=lm)
+grid.arrange(p1,p2,p3,p4, nrow = 2)
+
+p1 <- rookie_after_1997_df %>%
+  ggplot(aes(x=draft_number, y=net_rating)) +
+  geom_point()+geom_smooth(method=lm)
+p2 <- rookie_after_1997_df %>%
+  ggplot(aes(x=draft_number, y=gp)) +
+  geom_point()+geom_smooth(method=lm)
+p3 <- rookie_after_1997_df %>%
+  ggplot(aes(x=draft_number, y=pts)) +
+  geom_point()+geom_smooth(method=lm)
+p4 <- rookie_after_1997_df %>%
+  ggplot(aes(x=draft_number, y=ts_pct)) +
+  geom_point()+geom_smooth(method=lm)
+grid.arrange(p1, p2,p3,p4, nrow = 2)
+
+```
+Here, we are trying to show the relationship between draft numbers with other statistics performance. 
+(1)The scatter plot of draft_number with net_rating and the draft_number with ts_pct, it seems like that
+there is no correlation between draft number with net rating and ts_pct because the change of draft number 
+do not change whether net_ranking or ts_pct
+(2)For the scatter plots of draft numbers with gp(game played), we can not directly tell the relationship. 
+A regression line can be a perfect tool to solve this. (More tutorial resource about regression line:https://www.theanalysisfactor.com/linear-models-r-plotting-regression-lines/) It is clearly that players who 
+have less draft number played more than the players who have more.So, it is a negative relationship between 
+game_played with draft_number. 
+(3) For the scatter plot of pts and draft number, the slope of the regression line is negative so that 
+there is a negative relationship between those two. It means that the players which have less draft number(they have
+been picked first in the draft pick) can get more points in the game. 
+(4)The last four scatter plots are based on the data frame which only focus on the rookie player. The result is 
+similar with what we have before. 
+
+Unfortunately we’re missing information about the undrafted players as they don’t contain a draft number and are not plotted. Here we conduct a single variable visualization with density plots to compare between drafted and undrafted respectively. Density plots are useful to see the spread of data; they’re essentially smoothed out histograms. 
+```{r}
+undrafted_df <- tidy_nba %>%
+  filter(is.na(draft_number))
+drafted_df <- tidy_nba %>%
+  na.omit()
+
+p1 <- drafted_df %>%
+  ggplot(aes(x=net_rating)) +
+  geom_density()
+p2 <- drafted_df %>%
+  ggplot(aes(x=gp)) +
+  geom_density()
+p3 <- drafted_df %>%
+  ggplot(aes(x=pts)) +
+  geom_density()
+p4 <- drafted_df %>%
+  ggplot(aes(x=ts_pct)) +
+  geom_density()
+grid.arrange(p1, p2,p3,p4, nrow = 2)
+
+p1 <- undrafted_df %>%
+  ggplot(aes(x=net_rating)) +
+  geom_density()
+p2 <- undrafted_df %>%
+  ggplot(aes(x=gp)) +
+  geom_density()
+p3 <- undrafted_df %>%
+  ggplot(aes(x=pts)) +
+  geom_density()
+p4 <- undrafted_df %>%
+  ggplot(aes(x=ts_pct)) +
+  geom_density()
+
+grid.arrange(p1, p2,p3,p4, nrow = 2)
+```
+We can see that the spreads are generally similar unimodal distributions except for undrafted games played. Where the undrafted model has a bimodal distribution. The majority of drafted players seem to have high games played while undrafted players are more spread out. In addition, drafted players score much more points, the tail extending past 30, whereas the tail ends around 20 for undrafted players. 
+
+## Draft Pick Distribution
+
+Now we will make a pie chart to show the percentage of players taken in what set
+of picks make up the NBA playerbase during the 2016-17 season. Trying to assign
+a percentage for each of the 60 picks in the draft would divide the data into a
+lot of small ranges without many data points, but simply dividing it up into the
+1st round, 2nd round, and undrafted might not be as informative and precise as
+we would like, especially since previous data analysis has shown that there
+seems to be a big difference between players chosen at the beginning of the
+first round and towards the end of the second round specifically. When you run
+into this problem in data science where you want to group some entities together
+into groups depending on the value of some attribute, you can use what is called
+discretization (although draft_number is already a discrete variable here). This
+is usually used to transform continuous values into discrete values, and
+typically either places values into a specified number of intervals regardless
+of how many values fit into each one, or places an equal number of values into
+each interval, with the range of the intervals varying to match the
+distribution. [cite hector's lecture notes 22.2.1]. To learn more about when to
+use discretization and how different ways to implement it, you can read (the
+article
+here)[https://towardsdatascience.com/an-introduction-to-discretization-in-data-science-55ef8c9775a2]
+
+In R, discretization can be implemented using the cut function, as seen below.
+We use it here to divide the draft_number attribute into 6 intervals, with each
+interval containing 10 draft picks, then label the intervals with the inclusive
+range of picks they represent. First we make a pie chart representing all the
+players who played during the season, then we make another pie chart where all
+the rookies are excluded. Doing this should allow us to gain a better
+understanding of what draft picks usually turn out good enough to stay in the
+league to better understand player retention. It uses geom_bar() and
+coord_polar() from the [ggplot2
+package](https://github.com/rstudio/cheatsheets/blob/master/data-visualization-2.1.pdf)
+to make the pie charts.
+```{r}
+# the breaks argument in cut() breaks the draft_number values into 6 distinct
+# ranges, with the first number being an exclusive lower bound and the next
+# being the inclusive upper bound as well as the exclusive lower bound for the
+# next range, and so on.
+discrete_picks_df <-
+  tidy_nba %>%
+  mutate(pick_range = cut(draft_number, breaks = c(0, 10, 20, 30, 40, 50, 60),
+                             labels = c("1-10", "11-20", "21-30", "31-40", "41-50", "51-60")))
+
+# Make the pick_range column be characters instead, then assign any entry
+# that was undrafted the value of "Undrafted" for better naming purposes
+discrete_picks_df$pick_range <- as.character(discrete_picks_df$pick_range)
+discrete_picks_df$pick_range[is.na(discrete_picks_df$pick_range)] <- "Undrafted"
+
+# Creates data frame that takes all the entries of players from the 2016-17
+# season and counts how many players fell into which discretized range of draft
+# picks. It then calculates what percentage of all players fell into which group
+# that season.
+season_discr_pick_percent_df <-
+  filter(discrete_picks_df, season == "2016-17") %>%
+  group_by(pick_range) %>%
+  count() %>%
+  ungroup() %>%
+  mutate(range_percentage = n/sum(n)) %>%
+  arrange(desc(pick_range))
+
+# Creates the pie chart based on the data frame created above. subtracting half
+# of the percentage from the y value helps ggplot optimize the position of the
+# label on the chart.
+ggplot(season_discr_pick_percent_df) +
+  geom_bar(aes(x = "", y = range_percentage, fill = pick_range), stat = "identity", width = 1) +
+  coord_polar(theta = "y", start = 0) +
+  theme_void() +
+  geom_text(aes(x = 1, y = cumsum(range_percentage) - (range_percentage/2),
+                label = scales::percent(range_percentage)))
+
+# Create a dataframe similar to season_discr_pick_percent_df, but without any
+# rookies. anti_join() does this by removing any players from the filtered
+# discrete_picks_df for the 2016-17 season who appear on the list of rookies
+# with the same name and their rookie season matching 2016-17. The rest is the
+# same as before.
+season_discr_pick_percent_nonrookies <-
+  filter(discrete_picks_df, season == "2016-17") %>%
+  anti_join(rookie_after_1997_df, by = c("player_name", "season")) %>%
+  group_by(pick_range) %>%
+  count() %>%
+  ungroup() %>%
+  mutate(range_percentage = n/sum(n)) %>%
+  arrange(desc(pick_range))
+
+# Use the same process as the previous pie chart to make the new one without any
+# rookies.
+ggplot(season_discr_pick_percent_nonrookies) +
+  geom_bar(aes(x = "", y = range_percentage, fill = pick_range), stat = "identity", width = 1) +
+  coord_polar(theta = "y", start = 0) +
+  theme_void() +
+  geom_text(aes(x = 1, y = cumsum(range_percentage) - (range_percentage/2),
+                label = scales::percent(range_percentage)))
+```
+
+Based on the pie charts, Players picked within the top ten picks made up almost
+a quarter of all players in the league in 2016, with each subsequent interval of
+ten picks making up about 3-5% less of the league than the previous interval.
+Somewhat surprisingly, 19% of the league consisted of undrafted players.
+However, this makes more sense considering that the NBA has 30 teams, each with
+a maximum roster of 15 players, with additional players needing to join teams
+when players get injured [https://www.nba.com/news/faq]. This results in a
+minimum of 450 players making a roster in 2016, with only 60 rookies getting
+drafted, so a sizeable amount of undrafted rookies are needed to fill out
+rosters. By comparing the two pie charts, you can better see how many rookies do
+not pan out. As a percent of all the NBA players playing in at least their
+second season in 2016, the proportion of top ten picks went up by 3%. The
+proportion for every interval of picks in the first round increased, whereas
+every interval of players drafted in the 2nd or who went undrafted decreased or
+stayed the same, indicating a higher turnover rate of players within those
+intervals. The proportion of undrafted players went from 19% to 14.6%,
+indicating an especially high rate of undrafted players not making it to their
+second season. It's also interesting to note that over 60% of the players
+playing in at least their second NBA season were drafted in the first round.
+
+[Could use the discretized pick ranges to do violin plots for stuff :)]
+
+
+
+
+
+
+
+[could try to redo this stuff using some of the dataframes I created above? discretized into ranges of draft picks instead of rounds, etc.?]
+
+filter by a certain number of games played to ensure there's enough data.
+```{r}
+season_discr_pick_net_rating <-
+  filter(discrete_picks_df, gp >= 15) %>%
+  group_by(pick_range) %>%
+  summarize(mean_net_rating=mean(net_rating)) %>%
+  arrange(desc(pick_range))
+season_discr_pick_net_rating
+```
+
+Also plot the one of just rookies(?)
+```{r plot}
+# plot goes here
+season_discr_pick_net_rating %>%
+  ggplot(aes(x=pick_range, y=mean_net_rating)) +
+  geom_bar(stat="identity", fill="darkblue")
+```
+
+
+
+
+
+# Regression and Prediction
+
+
+Can the player's performance statistics predict if they were drafted or not?
+We see that generally, undrafted players do not perform as well as those that were drafted, but is there a statistical backing for it? We'll perform a logistic regression on the performance values that were chosen previously to see if we are able to predict if the player was drafted. A logistic regression is useful for this question as we’re trying to predict a binary value: drafted or undrafted. We had created an ‘Undrafted’ column in our data to easily use this value. R is able to do this for us with the glm() function, summary() and confint() will output the calculations. 
+
+Notes: Players with less than 10 games were filtered out to remove possible outlier values. Total shot percentage was multiplied by 10 to fit the range more in line with other variables.
+```{r}
+rm_under10 <- tidy_nba %>%
+  filter(gp >= 10)
+rm_under10$ts_pct <- rm_under10$ts_pct * 10
+
+logit <- glm(formula = Undrafted ~ net_rating + gp + pts + ts_pct, data = rm_under10, family = "binomial")
+summary(logit)
+confint(logit)
+```
+
+From the results, we actually see that our chosen performance metrics are not very good at predicting whether or not a player is drafted. Net rating, games played, and points all contain negative coefficients which means as those stats go up, the chance for them being drafted decreases. Intuitively, this doesn’t make much sense as you would think better stats means higher chance to be drafted. This is likely due to the large spread in data among those variables. Among drafted and undrafted, there are players that perform well and poorly. 
+The main driver in our logistic function is total shot percentage. This variable matches out intuition, and turns out to be the greatest predictor in whether a player was drafted or not.
+
+
+# Conclusion
+
+
+
